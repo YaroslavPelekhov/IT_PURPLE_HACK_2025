@@ -1,17 +1,16 @@
-import json         # Для работы с JSON-данными
-import re           # Для работы с регулярными выражениями
-import gymnasium as gym  # Gymnasium – библиотека для создания сред обучения с подкреплением
-import numpy as np  # Для числовых вычислений с массивами
-from gymnasium import spaces  # Пространства действий и наблюдений для среды
-from stable_baselines3 import PPO  # Имплементация алгоритма PPO для обучения агента
-from datetime import datetime  # Для работы с датой и временем
+import json         
+import re          
+import gymnasium as gym  
+import numpy as np  
+from gymnasium import spaces  
+from stable_baselines3 import PPO  
+from datetime import datetime  
 
 # Функция для "выравнивания" списка задач: извлекает все задачи, включая дочерние, в один список.
 def flatten_tasks(task_list):
     flat = []
     for task in task_list:
         flat.append(task)
-        # Если у задачи есть дочерние задачи, рекурсивно добавляем их в результирующий список
         if "children" in task and isinstance(task["children"], list):
             flat.extend(flatten_tasks(task["children"]))
     return flat
@@ -35,27 +34,25 @@ def get_required_role(task):
         return "Разработчик"
     elif "тестирование" in name:
         return "Тестировщик"
-    # Можно добавить дополнительные условия для других ролей при необходимости
 
 # Определение среды для планирования проекта, наследуемой от gym.Env.
 class ProjectSchedulingEnv(gym.Env):
     def __init__(self, tasks, weights, average_salary):
         super(ProjectSchedulingEnv, self).__init__()
-        self.tasks = tasks               # Список всех задач проекта
-        self.weights = weights           # Веса для оптимизации (например, длительность и стоимость)
-        self.average_salary = average_salary  # Средняя зарплата для каждой роли
-        self.num_tasks = len(self.tasks) # Количество задач в проекте
+        self.tasks = tasks              
+        self.weights = weights
+        self.average_salary = average_salary
+        self.num_tasks = len(self.tasks) 
 
-        # Определение пространства наблюдений: бинарный вектор, где 1 означает, что задача назначена
         self.observation_space = spaces.Box(low=0, high=1, shape=(self.num_tasks,), dtype=np.float32)
-        # Пространство действий – выбор индекса задачи из списка задач
+
         self.action_space = spaces.Discrete(self.num_tasks)
         self.reset()
 
     # Метод сброса среды в начальное состояние
     def reset(self, seed=None, options=None):
-        self.scheduled_tasks = []  # Список уже запланированных задач
-        self.done = False          # Флаг завершения планирования
+        self.scheduled_tasks = []
+        self.done = False        
         return self._get_obs(), {}
 
     # Вспомогательный метод для получения текущего наблюдения
@@ -67,24 +64,24 @@ class ProjectSchedulingEnv(gym.Env):
 
     # Метод шага среды: выполняется действие агента, обновляется состояние и вычисляется награда
     def step(self, action):
-        # Если выбранная задача уже запланирована, штрафуем (-1)
+
         if action in self.scheduled_tasks:
             reward = -1.0
         else:
-            # Добавляем задачу в список запланированных
+      
             self.scheduled_tasks.append(action)
-            # Определяем длительность задачи в днях и переводим в часы (8 часов в рабочем дне)
+   
             duration_days = self.tasks[action].get("duration", 1)
             duration_hours = duration_days * 8
-            # Определяем требуемую роль для задачи
+        
             req_role = get_required_role(self.tasks[action])
-            # Получаем ставку для данной роли (если не указана, используется значение по умолчанию)
+
             rate = self.average_salary.get(req_role, 2000)
-            # Рассчитываем стоимость задачи (зарплатные расходы)
+
             cost = duration_hours * rate
-            # Негативная награда: штраф за длительность задачи и её стоимость с учетом весовых коэффициентов
+   
             reward = - (duration_days * self.weights.get("duration", 7) + cost * self.weights.get("cost", 5))
-        # Если все задачи запланированы, отмечаем завершение
+
         if len(self.scheduled_tasks) == self.num_tasks:
             self.done = True
         terminated = self.done
@@ -97,13 +94,13 @@ class ProjectSchedulingEnv(gym.Env):
 
 # Функция для оптимизации расписания проекта с использованием алгоритма PPO
 def optimize_schedule(flat_tasks, weights, average_salary):
-    # Создаем среду для планирования
+
     env = ProjectSchedulingEnv(flat_tasks, weights, average_salary)
-    # Инициализируем модель PPO с многоуровневой персептронной политикой (MlpPolicy)
+
     model = PPO("MlpPolicy", env, verbose=0)
-    # Обучаем модель на 10000 временных шагов
+
     model.learn(total_timesteps=10000)
-    # Сбрасываем среду и начинаем предсказывать оптимальный порядок задач
+
     obs, _ = env.reset()
     schedule = []
     while True:
@@ -122,7 +119,7 @@ def compute_global_metrics(tasks):
     for task in tasks:
         start_str = task.get("startDate")
         end_str = task.get("endDate")
-        # Преобразуем строки дат в объекты datetime
+
         if start_str:
             try:
                 start_dates.append(datetime.fromisoformat(start_str))
@@ -133,27 +130,25 @@ def compute_global_metrics(tasks):
                 end_dates.append(datetime.fromisoformat(end_str))
             except Exception:
                 pass
-        # Суммируем зарплатные расходы для вычисления общей стоимости
+
         total_cost += task.get("salaryExpense", 0)
     if start_dates and end_dates:
-        # Вычисляем продолжительность проекта в часах
+
         duration_hours = (max(end_dates) - min(start_dates)).total_seconds() / 3600
     else:
         duration_hours = 0
     return duration_hours, total_cost
 
-# Основная функция для оптимизации расписания проекта
+
 def main():
-    # Глобальные переменные для хранения информации о зарплате и сотруднике, назначенном на задачу
+
     global worker_salary, employee_str
-    # Загрузка данных проекта из JSON-файла
+
     with open("dataset.json", 'r', encoding='utf-8') as f:
         project_data = json.load(f)
 
-    # Извлекаем веса для оптимизации из данных проекта
     weights = project_data.get("weights", {"duration": 7, "resources": 3, "cost": 5})
 
-    # Выравнивание задач: получаем плоский список задач, включая дочерние
     flat_tasks = flatten_tasks(project_data.get("tasks", {}).get("rows", []))
 
     # Обработка ресурсов проекта (сотрудников)
@@ -215,7 +210,6 @@ def main():
         })
         task["salaryExpense"] = salary_expense
 
-    # Вычисляем глобальные метрики проекта (продолжительность и стоимость)
     total_project_duration_hours, total_cost = compute_global_metrics(optimized_tasks)
 
     # Формируем итоговый JSON-вывод
@@ -230,7 +224,6 @@ def main():
         json.dump(output, f, indent=4, ensure_ascii=False)
     print("Оптимизированный план сохранён в файле optimized_tasks.json")
 
-# Точка входа в программу
 if __name__ == '__main__':
     main()
 
